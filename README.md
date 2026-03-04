@@ -386,10 +386,20 @@ Add package to base                  | uv add PACKAGE
 Add package to a group               | uv add PACKAGE --group GROUPNAME
 Install multiple groups              | uv sync --group GROUP1 --group GROUP2
 
-Groups:
+------------------------------------------------------------
+Groups
+------------------------------------------------------------
 
-- base [matplotlib, numpy, pandas, scikit-learn, seaborn, ipykernel]
-- viz [plotly]
+name displayed here is actual group name; below are the packages installed per group
+
+base                                 | viz
+------------------------------------ | -----------------------------------------------
+matplotlib                    | plotly
+numpy                    | 
+pandas                  | 
+scikit-learn               | 
+seaborn              | 
+ipykernel |
 
 
 ------------------------------------------------------------
