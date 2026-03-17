@@ -4,7 +4,11 @@ CVI4IL – University Project (Deadline: Currently unknown)
 ---
 
 # Team
-**XXX**
+- Annalena Salchegger
+- Celina Binder
+- Simone Kern
+
+Distribution and tasks handled per member will be decided on a weekly basis, depending on the project progress and individual preferences, and will be added in this section as we go.
 
 ---
 
