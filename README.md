@@ -1,5 +1,5 @@
 # Computer Vision Project — Working with the BAMBI dataset
-CVI4IL – University Project (Deadline: Currently unknown)
+CVI4IL – University Project
 
 ---
 
@@ -8,7 +8,8 @@ CVI4IL – University Project (Deadline: Currently unknown)
 - Celina Binder
 - Simone Kern
 
-Distribution and tasks handled per member will be decided on a weekly basis, depending on the project progress and individual preferences, and will be added in this section as we go.
+Distribution and tasks handled per member was decided on a weekly basis, depending on the project progress and individual preferences.
+
 
 ---
 
@@ -59,6 +60,10 @@ CVI4IL-SS26-Project
 ├── data                       # Both original and processed
 │
 ├── docs                       # Documentation and reports; contains proposal
+│
+models/
+├── best_keypoint_model_A.pth
+└── best_keypoint_model_B.pth
 │
 ├── pyproject.toml             # Python project configuration
 ├── uv.lock                    # Dependency lockfile
@@ -222,11 +227,14 @@ Class_ids are defined as `<wikidata_id>-<gender>-<age>-<visibility>` with the fo
 
 ---
 
-# Task Definition
+## Task Definition
 
-In this project we extend standard animal detection by estimating **animal orientation**.
+In this project, we extend standard animal detection by estimating **animal orientation** from thermal drone imagery.  
+The repository supports **two complementary modeling approaches**, both implemented and evaluated.
 
-Each detected animal will have two keypoints:
+### Approach A — Keypoint Regression (Head & Tail Prediction)
+
+The model predicts two keypoints per animal:
 
 - **Head**
 - **Tail**
@@ -248,51 +256,79 @@ Example:
 tail ●──────────▶ ● head
 direction of movement / gaze
 
-```
 
-This approach allows us to determine:
+### Approach B — Angle Regression (Direct Orientation Prediction)
 
-- movement direction
-- attention direction
-- improved multi-frame tracking
+Instead of predicting keypoints, the model directly regresses a **single orientation angle** (e.g., in radians or degrees) representing the animal’s facing direction relative to the image coordinate system.
+
+This approach:
+
+- simplifies the output space  
+- avoids keypoint pairing errors  
+- enables faster inference  
+- requires careful angle normalization and evaluation  
+
+### Why Two Approaches?
+
+Both approaches offer different strengths:
+
+| Aspect | Keypoint Regression | Angle Regression |
+|-------|---------------------|------------------|
+| Interpretability | High (visualizable) | Medium |
+| Annotation requirements | Head & tail points | Only angle |
+| Robustness | Strong for multi-animal scenes | Sensitive to angle wrapping |
+| Inference speed | Slower | Faster |
+| Error analysis | Geometric | Scalar |
 
 ---
 
 # Methodology
 
-The project pipeline consists of several steps:
+The project pipeline supports **both keypoint-based and angle-based orientation estimation** and consists of the following steps:
 
 ### 1. Data Preparation
-- Load BAMBI images
-- Clean and structure the dataset
-- Create or import annotations
+- Load BAMBI images  
+- Clean and structure the dataset  
+- Import YOLO bounding boxes  
 
 ### 2. Annotation Processing
-- Store head/tail annotations
-- Convert them into training format
+- Convert Label Studio keypoints into YOLO keypoint format (**Approach A**)  
+- Compute orientation angles from head/tail pairs (**Approach B**)  
 
 ### 3. Model Training
-Possible approaches include:
+Two modeling strategies are implemented:
 
-- Keypoint detection networks
-- Pose estimation models
-- Object detection + keypoint regression
+- **Approach A: Keypoint Regression**  
+  Predicts head and tail coordinates for each animal.
+
+- **Approach B: Angle Regression**  
+  Predicts a single orientation angle per animal.
 
 ### 4. Evaluation
-Evaluate predictions using metrics such as:
-
-- Keypoint localization error
-- Orientation angle error
-- Detection accuracy
+- Keypoint localization error (Approach A)  
+- Orientation angle error (Approach A & B)  
+- Detection accuracy  
 
 ### 5. Visualization
-Overlay predictions on images:
-
-- predicted head position
-- predicted tail position
-- direction arrow
+- Bounding boxes  
+- Head/tail keypoints (Approach A)  
+- Orientation arrows (Approach A & B)  
 
 ---
+
+# Model Weigths
+The repository contains the trained weights for both approaches:
+
+* `models\best_keypoint_model_A.pth` - Keypoint regression model predicting head and tail coordinates
+* `models\best_keypoint_model_B.pth` - Orientation estimation model predicting animal direction as a normalized angle representation
+
+These weights can be loaded directly using PyTorch:
+
+```python
+model.load_state_dict(torch.load("models\best_keypoint_model_A.pth"))
+model.eval()
+```
+
 
 # Setup Instructions
 
@@ -305,114 +341,105 @@ cd CVI4IL-SS26-Project/
 ## Project Dependencies & Environment Setup (using uv)
 
 This project uses `uv` + `pyproject.toml` to manage Python dependencies.
-Unlike pip or conda, uv supports dependency groups, which allow us to install only what we need for each part of the project (baseline models, ML models, neural models, visualizations, etc.).
 
-This keeps environments small, fast, conflict-free, and makes collaboration easier.
+All dependencies (base + optional groups) are defined in the project configuration and are installed **in one step**:
 
-------------------------------------------------------------
-1. Installing Dependencies
-------------------------------------------------------------
+```
+uv sync
+```
 
-Install only the base dependencies (recommended for general users):
+This creates a fully reproducible environment with everything needed for running the notebooks and training the models.
 
-    uv sync
+---
 
-This installs only what is defined under:
+## Important for Reproducibility
 
-    [project]
-    dependencies = [...]
+All notebooks contain **absolute paths** from the original Azure development environment.
 
-------------------------------------------------------------
-Install dependencies for a specific model family
-------------------------------------------------------------
+To run the project on your own machine or Azure instance, you **must update the paths manually**:
 
-Visualizations:
+- dataset paths (`DATA_DIR`)
+- label paths
+- output directories
+- model paths (`MODEL_DIR`)
+- any hardcoded paths inside the notebooks
 
-    uv sync --group viz
+Example:
 
-------------------------------------------------------------
-Install multiple dependency groups example
-------------------------------------------------------------
+```python
+# Original (Azure)
+DATA_DIR = "/mnt/batch/tasks/shared/.../bambi_dataset/"
 
-    uv sync --group ml --group neural
+# Change to your local or Azure path
+DATA_DIR = "/home/yourname/bambi/"
+# or
+DATA_DIR = "C:/Users/yourname/datasets/bambi/"
+```
 
-------------------------------------------------------------
-Install everything (not recommended unless necessary)
-------------------------------------------------------------
+Without updating these paths, the notebooks will not run.
 
-    uv sync --all-groups
+---
 
-------------------------------------------------------------
-1. Adding New Dependencies
-------------------------------------------------------------
+## Adding New Dependencies
 
-Dependencies are tracked inside pyproject.toml.
+Dependencies are tracked inside `pyproject.toml`.
 
 Add a package to the base dependencies:
 
-    uv add pandas
+```
+uv add pandas
+```
 
 Add a package to a specific group:
 
-Example: add Prophet to stats models:
+```
+uv add PACKAGE --group GROUPNAME
+```
 
-    uv add prophet --group stats
+---
 
-Example: add TorchMetrics to neural models:
-
-    uv add torchmetrics --group neural
-
-Example: add seaborn extensions to viz tools:
-
-    uv add seaborn ruff --group viz
-
-------------------------------------------------------------
-1. Checking Installed Packages
-------------------------------------------------------------
+## Checking Installed Packages
 
 List everything currently installed:
 
-    uv pip list
+```
+uv pip list
+```
 
 See which groups are available:
 
-    uv tree
+```
+uv tree
+```
 
-------------------------------------------------------------
-Summary Table
-------------------------------------------------------------
+---
+
+## Summary Table
 
 Task                                 | Command
 ------------------------------------ | -----------------------------------------------
-Install base deps                    | uv sync
-Install viz tools                    | uv sync --group viz
+Install all dependencies             | uv sync
 Add package to base                  | uv add PACKAGE
 Add package to a group               | uv add PACKAGE --group GROUPNAME
-Install multiple groups              | uv sync --group GROUP1 --group GROUP2
 
-------------------------------------------------------------
-Groups
-------------------------------------------------------------
+---
+
+## Groups
 
 name displayed here is actual group name; below are the packages installed per group
 
 base                                 | viz
 ------------------------------------ | -----------------------------------------------
-matplotlib                    | plotly
-numpy                    | 
-pandas                  | 
-scikit-learn               | 
-seaborn              | 
-ipykernel |
+matplotlib                           | plotly
+numpy                                |
+pandas                               |
+scikit-learn                         |
+seaborn                              |
+ipykernel                            |
 
-
-------------------------------------------------------------
-
+---
 
 We are using Python **>=3.12**
-
-**That is all you need to do for the setup!**
-
 
 # Branch Instructions
 
@@ -422,10 +449,10 @@ Make sure you are in the project folder.
 ```bash
 git branch
 ```
- should be *main and maybe more.
+should be *main and maybe more.
 
-if you're not on main (so if * is on a different branch), switch via 
-```bash 
+If you're not on main (so if * is on a different branch), switch via:
+```bash
 git checkout main
 ```
 
@@ -441,45 +468,42 @@ git checkout -b <feature-name>
 
 -b means: create and switch to the new branch.
 
-**Naming convention for branch; NOT for commit message:** 
+**Naming convention for branch; NOT for commit message:**  
+`[FirstLetterOfFirstName][FirstLetterOfLastName]-[FeatureAdded]`
 
-[FirstLetterOfFirstName][FirstLetterOfLastName]-[FeatureAdded]
-
-
-EXAMPLE: CB-Preprocessing or AS-Visualizations
+Example: `CB-Preprocessing` or `AS-Visualizations`
 
 ## First push
 ```bash
-git push -u origin <feature-name> 
+git push -u origin <feature-name>
 ```
 
-Do this before any changes, because the very first push requires special handling using the "-u origin" feature. 
+Do this before any changes, because the very first push requires special handling using the `-u origin` feature.
 
 ## All further pushes
-
-After this, you can treat it normally using 
-```bash 
-git add . 
+```bash
+git add .
 git commit -m "Message"
 git push
 ```
 
 ## Merging
 
-Merge via github website
+Merge via GitHub website:
 
-1. Go to the repo on GitHub
-2. Open the Pull Requests tab
-3. GitHub usually suggests one automatically
+1. Go to the repo on GitHub  
+2. Open the Pull Requests tab  
+3. GitHub usually suggests one automatically  
 
-If it doesn't 
+If it doesn't:
 
-1. Go to the repository, tab ```Pull Requests```
-2. It should suggest one but if it doesn't click ```new pull request```
-   
-   ```base: main <- compare: [your-feature-branch]```
+1. Go to the repository, tab `Pull Requests`  
+2. Click `new pull request`  
+   ```
+   base: main <- compare: [your-feature-branch]
+   ```
 
-Should be able to switch without merging conflicts. If you have merging conflicts... pray.
+If you have merge conflicts… pray.
 
 ## Switching to main
 
@@ -490,7 +514,7 @@ git fetch
 git pull
 ```
 
-now we can switch to the main
+Now we can switch to main:
 
 ```bash
 git checkout main
