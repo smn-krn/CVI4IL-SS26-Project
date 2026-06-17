@@ -1,4 +1,4 @@
-# BAMBI Wildlife Orientation Estimation
+# BAMBI Wildlife Orientation Estimation 🦌
 
 ---
 
@@ -129,11 +129,9 @@ The complexity of orientation estimation depends heavily on how many animals app
 
 ```python
 box_counts = []
-
 for label_file in TRAIN_LABELS.glob('*.txt'):
     with open(label_file) as f:
         lines = [l.strip() for l in f if l.strip()]
-
     box_counts.append(len(lines))
 ```
 
@@ -181,14 +179,17 @@ Therefore, random samples are visualized.
 ### Implementation
 
 ```python
-img = Image.open(img_path)
-
-labels = load_yolo_labels(label_path)
-
-for label in labels:
-    x, y, w, h = ...
-    rect = plt.Rectangle(...)
-    ax.add_patch(rect)
+for i, img_path in enumerate(train_images):
+    label_path = TRAIN_LABELS / f"{img_path.stem}.txt"
+    
+    img = Image.open(img_path)
+    width, height = img.size
+    
+    axes[i].imshow(img)
+    
+    bboxes = []
+    if label_path.exists():
+        bboxes = load_yolo_labels(str(label_path))
 ```
 
 ### Explanation
@@ -220,11 +221,6 @@ Class imbalance can significantly affect object detection performance.
 
 ```python
 counts = stats[split]['class_counts']
-
-plt.bar(
-    counts.keys(),
-    counts.values()
-)
 ```
 
 ### Explanation
@@ -251,12 +247,12 @@ Animal orientation estimation becomes more difficult when objects occupy only a 
 ### Implementation
 
 ```python
-widths = []
-heights = []
-
-for bbox in all_boxes:
-    widths.append(bbox['width'])
-    heights.append(bbox['height'])
+widths, heights = [], []
+for label_file in TRAIN_LABELS.glob('*.txt'):
+    bboxes = load_yolo_labels(str(label_file))
+    for bbox in bboxes:
+        widths.append(bbox['width'])
+        heights.append(bbox['height'])
 ```
 
 ### Explanation
@@ -297,7 +293,7 @@ All exports must be merged into a single source of truth.
 
 ```python
 def load_json_safe(path):
-    """Load JSON with helpful error messages."""
+    """Loads JSON file with helpful error messages."""
     path = Path(path)
     if not path.exists():
         print(f"  SKIP: {path.name} not found")
@@ -373,17 +369,17 @@ These must be grouped into pairs representing a single animal.
 ### Implementation
 
 ```python
-## Process Ground Truth with Keypoint Pairing
+# process ground truth with split, pairing keypoints and matching to bboxes
 
 def parse_keypoint_pairs(results):
     """
     Pair Head/Tail keypoints by the order they were annotated.
-    The annotator labeled them consecutively: Head, Tail, Head, Tail...
-    so we pair them in the order they appear in the results list,
+    We labeled them consecutively: Head, Tail, Head, Tail...
+    so we paired them in the order they appear in the results list,
     matching each Head with the next Tail that follows it.
-    Falls back to nearest-neighbour only if ordering is ambiguous.
+    Fallback: nearest-neighbour but only if ordering is ambiguous
     """
-    # Separate into heads and tails, preserving annotation order
+    # separate into heads and tails, preserving annotation order
     heads = []
     tails = []
     
@@ -400,8 +396,7 @@ def parse_keypoint_pairs(results):
     if not heads or not tails:
         return []
 
-    # Check if annotation was done in strict alternating order
-    # by rebuilding the interleaved sequence
+    # checks if annotation was done in strict alternating order
     pairs = []
     pending_head = None
 
@@ -412,17 +407,16 @@ def parse_keypoint_pairs(results):
 
         if label == 'Head':
             if pending_head is not None:
-                # Two heads in a row — nearest-neighbour fallback for this head
-                # (find closest tail not yet used)
+                # two heads in a row: nearest-neighbour fallback for this head (find closest tail that was not yet used)
                 pass
             pending_head = (x, y)
         elif label == 'Tail':
             if pending_head is not None:
                 pairs.append({'head': pending_head, 'tail': (x, y)})
                 pending_head = None
-            # Tail without preceding head — skip
+            # tail without preceding head will be skipped
 
-    # If some heads had no following tail, pair remaining by nearest-neighbour
+    # in case some heads had no following tail-> pair remaining by nearest-neighbour
     if pending_head is not None:
         used_tails = {p['tail'] for p in pairs}
         remaining_tails = [t for t in tails if t not in used_tails]
@@ -452,7 +446,7 @@ def match_pairs_to_bboxes(pairs, bbox_lines):
             cx, cy = float(parts[1]), float(parts[2])
             bw, bh = float(parts[3]), float(parts[4])
 
-            # Only match if midpoint falls within 2x the bbox area
+            # only match if midpoint falls within 2x the bbox area
             if abs(mid_x - cx) > bw and abs(mid_y - cy) > bh:
                 continue
 
@@ -492,9 +486,8 @@ def process_real_ground_truth_with_split():
 
         raw_stem = Path(file_upload).stem
 
-        # Remove LS upload prefix/hash
-        # Example:
-        #   "141d1290-6_4645" -> "6_4645"
+        # remove Label Studio upload prefix/hash
+        # Example: "141d1290-6_4645" -> "6_4645"
         if '-' in raw_stem:
             img_name = raw_stem.split('-', 1)[-1]
         else:
@@ -519,7 +512,7 @@ def process_real_ground_truth_with_split():
 
     print(f"Valid (img, head, tail) entries: {len(valid_items)}  |  Skipped: {skipped}\n")
 
-    # Shuffle and split 70/15/15
+    # shuffle and split 70/15/15
     import random
     random.shuffle(valid_items)
     n = len(valid_items)
@@ -541,7 +534,7 @@ def process_real_ground_truth_with_split():
             head     = item['head']
             tail     = item['tail']
 
-            # Search for the label file across all original splits
+            # search for the label file across all original splits
             orig_label_path = None
             for src_split in ['train', 'val', 'test']:
                 candidate = DATA_DIR / 'labels' / src_split / f"{img_name}.txt"
@@ -565,7 +558,7 @@ def process_real_ground_truth_with_split():
             output_path = OUTPUT_DIR / 'labels_keypoints' / split / f"{img_name}.txt"
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Append mode so multiple animals in same image accumulate
+            # append mode: so multiple animals in the same image accumulate
             with open(output_path, 'a') as f:
                 for m in matched:
                     h, t_ = m['head'], m['tail']
@@ -585,7 +578,6 @@ def process_real_ground_truth_with_split():
 
 train_count, val_count, test_count = process_real_ground_truth_with_split()
 ```
-
 ### Explanation
 
 Each annotation is inspected and classified as:
@@ -654,8 +646,9 @@ if label_dir.exists():
                     tail = np.array([float(parts[8]), float(parts[9])])
                     print(f"  dist={np.linalg.norm(head-tail):.4f}  {line.strip()}")
 else:
-    print("Label directory does not exist")
+    print("Label directory does not exist")  
 ```
+  
 **Output:**
 ~~~text
 Files found: 123
@@ -733,18 +726,16 @@ Visual inspection ensures that generated keypoints are correct.
 ### Implementation
 
 ```python
-# Visualize Sample with Keypoints
-
 def visualize_keypoints(img_name, kp_split='test'):
-    """Visualize image with keypoints. Searches all image splits for the source image."""
+    """Visualizes image with keypoints and searches all image splits for the source image."""
     
-    # Find the keypoint label in our output directory
+    # find keypoint label in our output directory
     kp_label = OUTPUT_DIR / 'labels_keypoints' / kp_split / f"{img_name}.txt"
     if not kp_label.exists():
         print(f"Keypoint label not found: {kp_label}")
         return
     
-    # Search for the image across all original BAMBI splits
+    # search for the image across all original BAMBI splits
     img_path = None
     for split in ['train', 'val', 'test']:
         candidate = DATA_DIR / 'images' / split / f"{img_name}.jpg"
@@ -763,7 +754,7 @@ def visualize_keypoints(img_name, kp_split='test'):
     fig, ax = plt.subplots(1, 1, figsize=(10, 8))
     ax.imshow(img)
     
-    handles = {}  # avoid duplicate legend entries
+    handles = {}  # avoid duplicate entries
     
     with open(kp_label, 'r') as f:
         for line in f:
@@ -794,7 +785,7 @@ def visualize_keypoints(img_name, kp_split='test'):
                 t_pt = ax.plot(tail_x, tail_y, 'ro', markersize=3, zorder=5)[0]
                 ax.annotate('', xy=(head_x, head_y), xytext=(tail_x, tail_y),
                             arrowprops=dict(arrowstyle='->', color='yellow', lw=1,
-                                            mutation_scale=5))  # default is 10, lower = smaller arrowhead
+                                            mutation_scale=5)) 
                 handles['Head'] = h_pt
                 handles['Tail'] = t_pt
 
@@ -809,7 +800,7 @@ def visualize_keypoints(img_name, kp_split='test'):
     plt.show()
 
 
-# Show samples from each output split
+# look at samples from each output split
 for kp_split in ['train', 'val', 'test']:
     split_dir = OUTPUT_DIR / 'labels_keypoints' / kp_split
     if not split_dir.exists():
@@ -875,7 +866,7 @@ for split in ['train', 'val', 'test']:
                         'parts': parts,
                     })
 
-# Sort by distance — look at the ones with largest separation first
+# sorted by distance: looking at ones with largest separation first
 label_distances.sort(key=lambda x: x['dist'], reverse=True)
 
 print("Top 10 largest head-tail separations:")
@@ -954,7 +945,7 @@ def visualize_label(item):
     plt.tight_layout()
     plt.show()
 
-# Visualize top 5 (best labels) and bottom 5 (worst labels)
+# visualizing top 5 (best labels) and bottom 5 (worst labels)
 print("=== Largest separations (best labels) ===")
 for item in label_distances[:5]:
     visualize_label(item)
@@ -989,7 +980,7 @@ Check if annotations and IDs match for a file with multiple animals.
 with open(GT_EXPORT) as f:
     data = json.load(f)
 
-# Find an image we know has issues
+# find an image we know has issues
 target = '229_1331'
 for item in data:
     file_upload = item.get('data', {}).get('img', '')
@@ -1034,7 +1025,7 @@ Image: 229_1331
 ```
 
 ```python
-# check if IDs are present
+# check if IDs are present in the results to see if we can track annotation order more reliably
 with open(GT_EXPORT) as f:
     data = json.load(f)
 
@@ -1122,7 +1113,6 @@ Each annotation contains:
 and is fully compatible with YOLO keypoint training pipelines.
 
 ---
-# **Start here again**
 
 # Notebook 03 – Model Training
 
@@ -1151,6 +1141,8 @@ Before training, it is important to verify that the generated keypoint labels co
 ### Implementation
 
 ```python
+# diagnostic: check head-tail distance distribution in training labels
+
 distances = []
 for label_file in TRAIN_LABELS.glob('*.txt'):
     with open(label_file) as f:
@@ -1234,6 +1226,7 @@ The limited size of the annotated dataset makes augmentation essential to preven
 ### Implementation
 
 ```python
+# data augmentation: random horizontal and vertical flips with corresponding keypoint adjustments
 class KeypointDatasetWithFlip(KeypointDataset):
     def __getitem__(self, idx):
         img, keypoints = super().__getitem__(idx)
@@ -1251,7 +1244,7 @@ class KeypointDatasetWithFlip(KeypointDataset):
 The full training transform pipeline also applies:
 
 ```python
-# Data augmentation for limited real data
+# data augmentation for limited real data
 train_transform = transforms.Compose([
     transforms.Resize((IMG_SIZE, IMG_SIZE)),
     transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2),
@@ -1287,6 +1280,7 @@ A compact pretrained backbone provides a strong initialization while keeping the
 ### Implementation
 
 ```python
+# sanity check model forward pass
 class KeypointModel(nn.Module):
     def __init__(self, num_keypoints=2):
         super().__init__()
@@ -1325,11 +1319,13 @@ def keypoint_loss(outputs, targets):
     pred_vec = outputs[:, :2] - outputs[:, 2:]
     true_vec = targets[:, :2] - targets[:, 2:]
 
+    # stabilise cosine similarity, skipped when vector norm is too small
     pred_norm = torch.norm(pred_vec, dim=1, keepdim=True).clamp(min=1e-6)
     true_norm = torch.norm(true_vec, dim=1, keepdim=True).clamp(min=1e-6)
     cos_sim   = (pred_vec / pred_norm * true_vec / true_norm).sum(dim=1)
     orient_loss = (1 - cos_sim).mean()
 
+    # separation loss, penalises head/tail distance being wrong
     pred_dist = torch.norm(pred_vec, dim=1)
     true_dist = torch.norm(true_vec, dim=1)
     sep_loss  = nn.functional.mse_loss(pred_dist, true_dist)
@@ -1358,12 +1354,6 @@ Training the regression head before exposing the backbone to gradient updates st
 ### Implementation
 
 ```python
-for param in model.backbone.parameters():
-    param.requires_grad = False
-# Keep the new head trainable
-for param in model.backbone.classifier.parameters():
-    param.requires_grad = True
-
 for epoch in range(NUM_EPOCHS):
 
     # unfreeze backbone after warmup and lower LR
@@ -1406,6 +1396,8 @@ dx = hx - tx
 dy = hy - ty
 angle = np.arctan2(dy, dx)
 
+# encode as (sin, cos) so the output is continuous
+# and 180° ambiguity is handled naturally
 angle_target = torch.tensor(
     [np.sin(angle), np.cos(angle)],
     dtype=torch.float32
@@ -1427,6 +1419,7 @@ Approach B modifies the output layer to produce a two-dimensional unit vector in
 ### Implementation
 
 ```python
+# sanity check model forward pass
 class KeypointModel(nn.Module):
     def __init__(self):
         super().__init__()
@@ -1440,7 +1433,7 @@ class KeypointModel(nn.Module):
 
     def forward(self, x):
         out = self.backbone(x)
-        # Normalise to unit vector so output is always a valid angle
+        # normalise to unit vector so output is always a valid angle
         return nn.functional.normalize(out, dim=1)
 ```
 
@@ -1459,6 +1452,7 @@ Because the target representation is a unit vector, the natural loss is one minu
 ### Implementation
 
 ```python
+# angle loss function that compares predicted and true angles
 def angle_loss(outputs, targets):
     cos_sim = (outputs * targets).sum(dim=1)
     return (1 - cos_sim).mean()
@@ -1481,6 +1475,7 @@ Approach B applies stronger augmentation than Approach A to compensate for the r
 ### Implementation
 
 ```python
+# data augmentation for limited real data
 train_transform = transforms.Compose([
     transforms.Resize((IMG_SIZE, IMG_SIZE)),
     transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.3),
@@ -1556,6 +1551,7 @@ Evaluation must be performed against the original human-annotated keypoints rath
 HEAD_LABEL = 'Head'
 TAIL_LABEL = 'Tail'
 
+# load and parse GT annotations
 def load_ground_truth(gt_export_path):
     if not gt_export_path.exists():
         print(f"ERROR: GT file not found: {gt_export_path}")
@@ -1588,7 +1584,7 @@ def load_ground_truth(gt_export_path):
                     pairs.append({'Head': pending_head, 'Tail': (x, y)})
                     pending_head = None
 
-            # If a head had no following tail, pair by nearest remaining tail
+            # if head had no following tail, pair by nearest remaining tail
             if pending_head is not None:
                 used_tails = {p['Tail'] for p in pairs}
                 remaining = [t for t in all_tails if t not in used_tails]
@@ -1621,6 +1617,14 @@ In scenes containing multiple animals, model predictions must be matched to grou
 
 ```python
 def match_predictions_to_gt(predictions, gt_pairs):
+    """
+    Greedily matches each predicted animal to its nearest GT pair by
+    comparing the predicted head/tail midpoint to the GT midpoint.
+    predictions: list of {'pred_head': (x,y), 'pred_tail': (x,y)}  - pixel coords
+    gt_pairs:    list of {'Head': (nx,ny), 'Tail': (nx,ny)}         - normalised coords
+    orig_w, orig_h: used to convert GT to pixels inside the caller
+    Returns list of (pred, gt_pair_or_None) tuples.
+    """
     matched = []
     used_gt = set()
     for pred in predictions:
@@ -1664,6 +1668,7 @@ For Approach A, the primary metrics are the mean errors of the predicted head an
 ### Implementation
 
 ```python
+# main evaluation loop on real GT images
 def evaluate_on_real_gt(model, gt, device, img_size=IMG_SIZE):
     model.eval()
     .
@@ -1695,6 +1700,7 @@ For Approach B, the evaluation metric is the angular error in degrees between th
 ### Implementation
 
 ```python
+# main evaluation loop on real GT images
 def evaluate_on_real_gt(model, gt, device, img_size=IMG_SIZE):
     model.eval()
     .
@@ -1777,6 +1783,7 @@ Quantitative metrics do not fully capture whether a model is useful in practice.
 ### Implementation
 
 ```python
+# visualize predictions for a single image, showing all bbox crops and GT pairs
 def visualize_prediction(image_name, img_split='test', show_ground_truth=True):
     img_path = DATA_DIR / 'images' / img_split / f"{image_name}.jpg"
     if not img_path.exists():
@@ -1808,29 +1815,26 @@ def visualize_prediction(image_name, img_split='test', show_ground_truth=True):
         print(f"No bboxes found for {image_name}")
         return None
 
-    # Run model on every bbox — get angle per animal
+    # run model on every bbox crop
     predictions = []
     for bbox in bboxes:
         x1, y1, x2, y2 = compute_crop(bbox, orig_w, orig_h)
-        cx_px = bbox['cx'] * orig_w
-        cy_px = bbox['cy'] * orig_h
+        crop_w, crop_h = x2 - x1, y2 - y1
         img_crop = img.crop((x1, y1, x2, y2))
         img_tensor = transform(img_crop).unsqueeze(0).to(DEVICE)
         with torch.no_grad():
-            out = model(img_tensor).cpu().numpy()[0]
-        angle = np.arctan2(out[0], out[1])
-        arrow_len = max(bbox['bw'] * orig_w, bbox['bh'] * orig_h) * 1.5
+            pred = model(img_tensor).cpu().numpy()[0]
         predictions.append({
-            'cx': cx_px,
-            'cy': cy_px,
-            'angle': angle,
-            'arrow_len': arrow_len,
+            'pred_head': (pred[0] * crop_w + x1, pred[1] * crop_h + y1),
+            'pred_tail': (pred[2] * crop_w + x1, pred[3] * crop_h + y1),
+            'bbox': bbox,
+            'crop': (x1, y1, x2, y2),
         })
 
     fig, ax = plt.subplots(1, 1, figsize=(10, 10))
     ax.imshow(img)
 
-    # Draw all bboxes
+    # draw all bboxes
     for bbox in bboxes:
         cx, cy = bbox['cx'] * orig_w, bbox['cy'] * orig_h
         bw, bh = bbox['bw'] * orig_w, bbox['bh'] * orig_h
@@ -1838,37 +1842,37 @@ def visualize_prediction(image_name, img_split='test', show_ground_truth=True):
                               fill=False, edgecolor='red', linewidth=1.5)
         ax.add_patch(rect)
 
-    # Draw GT arrows
+    # draw GT points for all annotated animals
     if show_ground_truth and image_name in gt_lookup:
         for i, pair in enumerate(gt_lookup[image_name]):
-            gt_hx = pair['Head'][0] * orig_w
-            gt_hy = pair['Head'][1] * orig_h
-            gt_tx = pair['Tail'][0] * orig_w
-            gt_ty = pair['Tail'][1] * orig_h
-            label = 'GT orientation' if i == 0 else '_nolegend_'
-            ax.annotate('', xy=(gt_hx, gt_hy), xytext=(gt_tx, gt_ty),
-                        arrowprops=dict(arrowstyle='->', color='white', lw=1.5,
-                                        mutation_scale=10),
-                        label=label)
-            ax.plot(gt_hx, gt_hy, 'r^', markersize=4, alpha=0.9,
-                    label='GT Head' if i == 0 else '_nolegend_')
-            ax.plot(gt_tx, gt_ty, 'rs', markersize=4, alpha=0.9,
-                    label='GT Tail' if i == 0 else '_nolegend_')
+            gt_head = (pair['Head'][0] * orig_w, pair['Head'][1] * orig_h)
+            gt_tail = (pair['Tail'][0] * orig_w, pair['Tail'][1] * orig_h)
+            label_h = 'GT Head' if i == 0 else '_nolegend_'
+            label_t = 'GT Tail' if i == 0 else '_nolegend_'
+            ax.plot(gt_head[0], gt_head[1], 'r^', markersize=4,
+                    label=label_h, alpha=0.9)
+            ax.plot(gt_tail[0], gt_tail[1], 'rs', markersize=4,
+                    label=label_t, alpha=0.9)
+            ax.arrow(gt_tail[0], gt_tail[1],
+                     gt_head[0] - gt_tail[0], gt_head[1] - gt_tail[1],
+                     head_width=12, head_length=8, fc='white', ec='white',
+                     linewidth=1.5, alpha=0.7)
 
-    # Draw predicted orientation arrows from bbox center
+    # draw predicted points for all animals
     for i, pred in enumerate(predictions):
-        dx = np.cos(pred['angle']) * pred['arrow_len']
-        dy = np.sin(pred['angle']) * pred['arrow_len']
-        label = 'Pred orientation' if i == 0 else '_nolegend_'
-        ax.annotate('', xy=(pred['cx'] + dx, pred['cy'] + dy),
-                    xytext=(pred['cx'] - dx, pred['cy'] - dy),
-                    arrowprops=dict(arrowstyle='->', color='yellow', lw=2,
-                                    mutation_scale=12))
-        if i == 0:
-            ax.plot([], [], color='yellow', label='Pred orientation')
+        label_h = 'Pred Head' if i == 0 else '_nolegend_'
+        label_t = 'Pred Tail' if i == 0 else '_nolegend_'
+        ax.plot(pred['pred_head'][0], pred['pred_head'][1], 'go', markersize=4,
+                label=label_h, markeredgecolor='darkgreen', markeredgewidth=1.5)
+        ax.plot(pred['pred_tail'][0], pred['pred_tail'][1], 'bo', markersize=4,
+                label=label_t, markeredgecolor='darkblue', markeredgewidth=1.5)
+        ax.arrow(pred['pred_tail'][0], pred['pred_tail'][1],
+                 pred['pred_head'][0] - pred['pred_tail'][0],
+                 pred['pred_head'][1] - pred['pred_tail'][1],
+                 head_width=5, head_length=15, fc='yellow', ec='yellow', linewidth=2)
 
     n_gt = len(gt_lookup.get(image_name, []))
-    ax.legend(loc='upper right', fontsize=9)
+    ax.legend(loc='upper right', fontsize=10)
     ax.axis('off')
     plt.title(f"{image_name}  |  {len(bboxes)} bbox(es)  |  {n_gt} GT pair(s)", fontsize=12)
     plt.tight_layout()
@@ -1909,6 +1913,7 @@ Inspecting individual images is time-consuming. A batch view allows rapid assess
 ### Implementation
 
 ```python
+# visualize a batch of images in a grid, showing all bbox crops and GT pairs
 def visualize_batch(n_samples=8):
     cols = 4
     rows = (len(batch_images) + cols - 1) // cols
